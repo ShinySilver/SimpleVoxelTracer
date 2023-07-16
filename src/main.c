@@ -19,7 +19,7 @@ int main(int argc, char* argv[])
 
     Terrain terrain;
 
-    u32 width = 1024;
+    u32 width = 3200;
     if (argc > 1)
     {
         width = atoi(argv[1]);

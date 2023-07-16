@@ -2,8 +2,6 @@
 //#extension GL_ARB_shader_clock : enable
 layout(local_size_x = 8,  local_size_y = 8) in;
 
-layout(rgba8, binding = 0) uniform writeonly image2D outImage;
-
 uniform uvec2 screenSize;
 uniform uvec3 terrainSize;
 uniform vec3 camPos;
@@ -25,7 +23,7 @@ layout(std430, binding = 2) readonly buffer chunk_pool_bits
     uint chunkPoolBits[];
 };
 
-layout(std430, binding = 3) readonly buffer precomputed_depth
+layout(std430, binding = 3) writeonly buffer precomputed_depth
 {
     uint precomputedDepth[];
 };
@@ -266,42 +264,26 @@ void main()
         return;
 
     // calc ray direction for current pixel
-    vec3 rayDir = getRayDir(ivec2(gl_GlobalInvocationID.xy));
+    vec3 rayDir = getRayDir(ivec2(gl_GlobalInvocationID.xy*2));
 
     vec3 rayPos = camPos;
 
     RayHit hit = RayHit(vec3(0), 0, 0);
 
-    uint depthSkip = precomputedDepth[int(gl_GlobalInvocationID.x/2)+int(gl_GlobalInvocationID.y/2)*screenSize.x];
-
-    // intersect the ray against the terrain if it crosses the terrain volume
-    vec3 colorTime = vec3(0);
-    if (depthSkip > 0)
+    // check if the camera is outside the voxel volume
+    float intersect = AABBIntersect(vec3(0), vec3(terrainSize - 1), camPos, 1.0f / rayDir);
+    if (intersect > 0)
     {
-//        uvec2 start = clock2x32ARB();
-        rayPos += rayDir * (depthSkip-0.75);
+        // calc ray start pos
+        rayPos += rayDir * (intersect + 0.001);
+    }
+
+    // intersect the ray agains the terrain if it crosses the terrain volume
+    if (intersect >= 0)
+    {
         hit = intersectTerrain(rayPos, rayDir);
-//        uvec2 end = clock2x32ARB();
-//        uint time = end.x - start.x;
-//        colorTime = vec3(time, 0, 0) / 1000000.0f;
     }
 
-    // choose color (sky or voxel color)
-    vec3 color = vec3(0.69, 0.88, 0.90);
-    if (hit.hitId != 0)
-    {
-        vec3 normal = normals[hit.faceId - 1];
-
-        // the color is packed as R3G3B2, a color palette would be preferable
-        color = vec3((hit.hitId >> 5) / 7.0f, ((hit.hitId >> 2) & 7u) / 7.0f, (hit.hitId & 3u) / 3.0f);
-
-        // simple normal based light
-        color *= vec3(abs(dot(normal, normalize(vec3(1, 3, 1.5)))));
-    }
-
-    // output color to texture
-
-    // uncomment the following line to color pixels based on the time it took to compute them
-    // color = colorTime;
-    imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1));
+    // output depth to buffer
+    precomputedDepth[gl_GlobalInvocationID.x+gl_GlobalInvocationID.y*screenSize.x] = uint(length(hit.hitPos-camPos));
 }

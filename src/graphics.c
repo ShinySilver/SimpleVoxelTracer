@@ -48,12 +48,14 @@ static bool shadersLoaded = false;
 static u32 terrainChunkArraySSBO;
 static u32 terrainPoolSSBO;
 static u32 terrainBitPoolSSBO;
+static u32 terrainAcceleratorSSBO;
 
 static u32 currentPoolBufferSize = 0;
 
 static u32 fbComputeTarget;
 
 static u32 shaderTerrainInitial;
+static u32 shaderTerrainAccelerator;
 static u32 shaderDFGenPrepare;
 static u32 shaderDFGenX;
 static u32 shaderDFGenY;
@@ -152,12 +154,27 @@ void graphics_drawFrame(Terrain *terrain, vec3 camPos, vec3 forward)
         LOG_INFO("Building DF for %u x %u x %u nodes took: %.02fms", terrain->width / 8, terrain->height / 8, terrain->width / 8, (finish - start) / 1000.0f);
     }
 
-    // render terrain (initial ray tracing)
-    glUseProgram(shaderTerrainInitial);
+    // precompute depths (long ray tracing)
+    glUseProgram(shaderTerrainAccelerator);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, terrainChunkArraySSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, terrainPoolSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, terrainBitPoolSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, terrainAcceleratorSSBO);
+
+    glUniform2ui(glGetUniformLocation(shaderTerrainAccelerator, "screenSize"), resX, resY);
+    glUniform3ui(glGetUniformLocation(shaderTerrainAccelerator, "terrainSize"), terrain->width, terrain->height, terrain->width);
+    glUniform3f(glGetUniformLocation(shaderTerrainAccelerator, "camPos"), camPos.x, camPos.y, camPos.z);
+
+    glUniformMatrix4fv(glGetUniformLocation(shaderTerrainAccelerator, "viewMat"), 1, GL_FALSE, viewMat.arr);
+    glUniformMatrix4fv(glGetUniformLocation(shaderTerrainAccelerator, "projMat"), 1, GL_FALSE, projMat.arr);
+
+    glDispatchCompute(ceilf(resX / 16.0f), ceilf(resY / 16.0f), 1);
+
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    // render terrain (short ray tracing)
+    glUseProgram(shaderTerrainInitial);
 
     gllib_bindTexture(&texTerrainInitial, 0, GL_WRITE_ONLY);
 
@@ -265,6 +282,13 @@ static void createSizeAwareResources(void)
 
     texTerrainInitial = gllib_makeDefaultTexture(resX, resY, GL_RGBA8, GL_NEAREST);
 
+    if(terrainAcceleratorSSBO)
+        glDeleteBuffers(1, &terrainAcceleratorSSBO);
+    glCreateBuffers(1, &terrainAcceleratorSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, terrainAcceleratorSSBO);
+    glNamedBufferStorage(terrainAcceleratorSSBO, resX*resY*(int)sizeof(uint), NULL,  GL_MAP_PERSISTENT_BIT|GL_MAP_READ_BIT|GL_MAP_WRITE_BIT);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, terrainAcceleratorSSBO);
+
     // bind final compute output to framebuffer, so it can be blit to screen
     glNamedFramebufferTexture(fbComputeTarget,  GL_COLOR_ATTACHMENT0, texTerrainInitial.handle, 0);
 
@@ -297,6 +321,7 @@ static void loadShaders(void)
         freeShaders();
 
     shaderTerrainInitial = gllib_makeCompute("res/shaders/compute/initial.glsl");
+    shaderTerrainAccelerator = gllib_makeCompute("res/shaders/compute/acceleration.glsl");
     shaderDFGenPrepare = gllib_makeCompute("res/shaders/compute/dfGenPrepare.glsl");
     shaderDFGenX = gllib_makeCompute("res/shaders/compute/dfGenXPass.glsl");
     shaderDFGenY = gllib_makeCompute("res/shaders/compute/dfGenYPass.glsl");
@@ -311,6 +336,7 @@ static void freeShaders(void)
         return;
 
     glDeleteProgram(shaderTerrainInitial);
+    glDeleteProgram(shaderTerrainAccelerator);
     glDeleteProgram(shaderDFGenPrepare);
     glDeleteProgram(shaderDFGenX);
     glDeleteProgram(shaderDFGenY);
