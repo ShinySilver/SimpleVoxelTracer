@@ -263,27 +263,29 @@ void main()
     if (any(greaterThanEqual(gl_GlobalInvocationID.xy, screenSize)))
         return;
 
+    // By default, fill the depth black
+    precomputedDepth[gl_GlobalInvocationID.x+gl_GlobalInvocationID.y*screenSize.x] = 0;
+
     // calc ray direction for current pixel
     vec3 rayDir = getRayDir(ivec2(gl_GlobalInvocationID.xy*2));
 
-    vec3 rayPos = camPos;
 
-    RayHit hit = RayHit(vec3(0), 0, 0);
-
-    // check if the camera is outside the voxel volume
     float intersect = AABBIntersect(vec3(0), vec3(terrainSize - 1), camPos, 1.0f / rayDir);
-    if (intersect > 0)
-    {
-        // calc ray start pos
-        rayPos += rayDir * (intersect + 0.001);
-    }
-
-    // intersect the ray agains the terrain if it crosses the terrain volume
     if (intersect >= 0)
     {
-        hit = intersectTerrain(rayPos, rayDir);
-    }
+        vec3 rayPos = camPos;
 
-    // output depth to buffer
-    precomputedDepth[gl_GlobalInvocationID.x+gl_GlobalInvocationID.y*screenSize.x] = uint(length(hit.hitPos-camPos));
+        // check if the camera is outside the voxel volume; increment rayPos if it is
+        if (intersect > 0)
+            rayPos += rayDir * (intersect + 0.001);
+
+
+        // intersect the ray against the terrain if it crosses the terrain volume
+        RayHit hit = intersectTerrain(rayPos, rayDir);
+
+        // output depth to buffer if there was a hit
+        if(hit.hitId>0){
+            precomputedDepth[gl_GlobalInvocationID.x+gl_GlobalInvocationID.y*screenSize.x] = uint(length(hit.hitPos-camPos));
+        }
+    }
 }
