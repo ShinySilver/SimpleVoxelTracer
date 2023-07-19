@@ -25,7 +25,7 @@ layout(std430, binding = 2) readonly buffer chunk_pool_bits
     uint chunkPoolBits[];
 };
 
-layout(std430, binding = 3) readonly buffer precomputed_depth
+layout(std430, binding = 3) buffer precomputed_depth
 {
     uint precomputedDepth[];
 };
@@ -266,35 +266,34 @@ void main()
         return;
 
     // By default, fill the pixel with sky color
-    vec3 color = vec3(0.69, 0.88, 0.90);
-    imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1));
+    imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(vec3(0.69, 0.88, 0.90), 1));
 
+    // get from the ssbo how much traversal we should skip
     uint depthSkip = precomputedDepth[int(gl_GlobalInvocationID.x/2)+int(gl_GlobalInvocationID.y/2)*screenSize.x];
 
-    // intersect the ray against the terrain if it crosses the terrain volume
+    // if there is a collision, the depth skip value will be > 0. otherwise, we'll keep the sky color
     if (depthSkip > 0)
     {
 
         // calc ray direction for current pixel
         vec3 rayDir = getRayDir(ivec2(gl_GlobalInvocationID.xy));
 
-        // calc starting position for ray
+        // calc starting position for ray & raytrace the last few voxels
         RayHit hit = intersectTerrain(camPos + rayDir * (depthSkip-1), rayDir);
 
         // find the pixel color
-        if (hit.hitId != 0)
-        {
-            vec3 normal = normals[hit.faceId - 1];
+        vec3 normal = normals[hit.faceId - 1];
 
-            // the color is packed as R3G3B2, a color palette would be preferable
-            color = vec3((hit.hitId >> 5) / 7.0f, ((hit.hitId >> 2) & 7u) / 7.0f, (hit.hitId & 3u) / 3.0f);
+        // the color is packed as R3G3B2, a color palette would be preferable
+        vec3 color = vec3((hit.hitId >> 5) / 7.0f, ((hit.hitId >> 2) & 7u) / 7.0f, (hit.hitId & 3u) / 3.0f);
 
-            // simple normal based light
-            color *= vec3(abs(dot(normal, normalize(vec3(1, 3, 1.5)))));
+        // simple normal based light
+        color *= vec3(abs(dot(normal, normalize(vec3(1, 3, 1.5)))));
 
-            // output color to texture
-            imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1));
-        }
+        // output color to texture
+        imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1));
     }
 
+    // Uncomment to have a depth image
+    //imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), vec4(vec3(depthSkip/10240.), 1));
 }

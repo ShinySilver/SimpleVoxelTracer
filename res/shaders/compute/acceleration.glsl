@@ -23,7 +23,7 @@ layout(std430, binding = 2) readonly buffer chunk_pool_bits
     uint chunkPoolBits[];
 };
 
-layout(std430, binding = 3) writeonly buffer precomputed_depth
+layout(std430, binding = 3) buffer precomputed_depth
 {
     uint precomputedDepth[];
 };
